@@ -1,98 +1,72 @@
-import json
-import re
-from typing import Optional
+from src.config import SEARCH_LIMIT, SUPABASE_KEY, SUPABASE_URL
+from supabase import create_client
 
-from langchain_core.callbacks import CallbackManagerForRetrieverRun
-from langchain_core.documents import Document
-from langchain_core.retrievers import BaseRetriever
+# 분류 카테고리 → Supabase drugs 테이블 컬럼 매핑
+CATEGORY_COLUMN_MAP = {
+    "product_name": "item_name",
+    "ingredient": "main_item_ingr",
+    "efficacy": "efcy_qesitm",
+}
 
-from src.config import SEARCH_K
-from src.vectorstore.pinecone_store import get_vector_store
-
-# 한국어 조사 패턴
-_PARTICLES = re.compile(
-    r"(의|은|는|이|가|을|를|에|에서|로|으로|와|과|도|만|부터|까지|에게|한테|께)$"
-)
-
-
-def _extract_keywords(query: str) -> list[str]:
-    """쿼리에서 조사를 제거하고 핵심 키워드를 추출합니다."""
-    query = re.sub(r"[?!.,]", "", query)
-    words = query.split()
-    keywords = []
-    for word in words:
-        stem = _PARTICLES.sub("", word)
-        if stem and len(stem) >= 2:
-            keywords.append(stem)
-    return keywords
-
-
-class DrugNameRetriever(BaseRetriever):
-    """제품명 + 효능 키워드 매칭 기반 Retriever."""
-
-    documents: list[Document]
-    k: int = SEARCH_K
-
-    def _get_relevant_documents(
-        self, query: str, *, run_manager: Optional[CallbackManagerForRetrieverRun] = None
-    ) -> list[Document]:
-        keywords = _extract_keywords(query)
-        scored_docs = []
-
-        for doc in self.documents:
-            efcy_text = doc.page_content  # 효능 텍스트만 포함
-            item_name = doc.metadata.get("item_name", "")
-            score = 0
-
-            for kw in keywords:
-                # 제품명에 키워드 포함 시 높은 점수
-                if kw in item_name:
-                    score += 10
-                # 효능 텍스트에 키워드 포함 시 낮은 점수
-                elif kw in efcy_text:
-                    score += 1
-
-            if score > 0:
-                scored_docs.append((score, doc))
-
-        scored_docs.sort(key=lambda x: x[0], reverse=True)
-        return [doc for _, doc in scored_docs[: self.k]]
+# 행 데이터를 텍스트로 변환할 때 사 용할 필드 라벨
+FIELD_LABELS = {
+    "item_name": "제품명",
+    "entp_name": "업체명",
+    "item_seq": "품목기준코드",
+    "main_item_ingr": "주성분",
+    "chart": "성상",
+    "spclty_pblc": "전문/일반",
+    "item_permit_date": "허가일자",
+    "efcy_qesitm": "효능",
+    "use_method_qesitm": "사용법",
+    "atpn_warn_qesitm": "주의사항 경고",
+    "atpn_qesitm": "주의사항",
+    "intrc_qesitm": "상호작용",
+    "se_qesitm": "부작용",
+    "deposit_method_qesitm": "보관법",
+    "storage_method": "저장방법",
+    "valid_term": "유효기간",
+}
 
 
-def _load_documents(path: str = "data/raw/drugs_raw.json") -> list[Document]:
-    """원본 데이터에서 Document 객체를 생성합니다."""
-    from src.data.preprocessor import preprocess_all
-    from src.data.loader import create_documents
-
-    with open(path, "r", encoding="utf-8") as f:
-        raw_items = json.load(f)
-
-    processed = preprocess_all(raw_items)
-    return create_documents(processed)
+def _get_client():
+    return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
-def get_retriever() -> BaseRetriever:
-    """
-    제품명 키워드 매칭 + Pinecone 벡터 검색 Ensemble Retriever를 반환합니다.
-    키워드 매칭은 약품명 검색에, 벡터 검색은 의미적 유사도에 활용됩니다.
-    """
-    from langchain_classic.retrievers import EnsembleRetriever
+def search_drugs(category: str, keyword: str) -> list[dict]:
+    """drugs 테이블에서 category에 해당하는 컬럼을 keyword로 ILIKE 검색합니다."""
+    column = CATEGORY_COLUMN_MAP.get(category)
+    if not column:
+        return []
 
-    # 벡터 검색 Retriever
-    vector_store = get_vector_store()
-    vector_retriever = vector_store.as_retriever(
-        search_type="similarity",
-        search_kwargs={"k": SEARCH_K},
+    client = _get_client()
+    res = (
+        client.table("drugs")
+        .select("*")
+        .ilike(column, f"%{keyword}%")
+        .limit(SEARCH_LIMIT)
+        .execute()
     )
+    return res.data or []
 
-    # 제품명 키워드 매칭 Retriever
-    documents = _load_documents()
-    keyword_retriever = DrugNameRetriever(documents=documents, k=SEARCH_K)
 
-    # Ensemble: 키워드 가중치 0.7 + 벡터 가중치 0.3
-    ensemble_retriever = EnsembleRetriever(
-        retrievers=[keyword_retriever, vector_retriever],
-        weights=[0.7, 0.3],
-    )
+def format_drug_info(row: dict) -> str:
+    """drugs 테이블의 행 1건을 읽기 좋은 텍스트로 포맷합니다."""
+    lines = []
+    for key, label in FIELD_LABELS.items():
+        value = (row.get(key) or "").strip()
+        if value:
+            lines.append(f"[{label}] {value}")
+    return "\n".join(lines)
 
-    return ensemble_retriever
+
+def format_search_results(rows: list[dict]) -> str:
+    """검색 결과 전체를 하나의 컨텍스트 문자열로 포맷합니다."""
+    if not rows:
+        return "(검색 결과 없음)"
+    parts = []
+    for i, row in enumerate(rows, 1):
+        header = f"── 검색 결과 {i} ──"
+        body = format_drug_info(row)
+        parts.append(f"{header}\n{body}")
+    return "\n\n".join(parts)
