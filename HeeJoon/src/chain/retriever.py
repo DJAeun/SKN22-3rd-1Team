@@ -51,7 +51,7 @@ def search_drugs(category: str, keyword: str) -> list[dict]:
 
 
 def format_drug_info(row: dict) -> str:
-    """drugs 테이블의 행 1건을 읽기 좋은 텍스트로 포맷합니다.
+    """drugs 테이블의 행 1건을  
     HTML 태그 및 마크다운 취소선 형식만 제거."""
     import re
     
