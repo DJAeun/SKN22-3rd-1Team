@@ -21,6 +21,14 @@ DRUG_API_NUM_OF_ROWS = 100
 # Drug API 2 Configuration (허가정보)
 DRUG_APPROVAL_API_BASE_URL = "http://apis.data.go.kr/1471000/DrugPrdtPrmsnInfoService07/getDrugPrdtPrmsnDtlInq06"
 
+# Mixture API Configuration
+MIXTURE_API_BASE_URL = os.getenv("MIXTURE_API_BASE_URL")
+MIXTURE_API_SERVICE_KEY = os.getenv("MIXTURE_API_SERVICE_KEY")
+MIXTURE_API_NUM_OF_ROWS = 100
+
+# Database Configuration
+DATABASE_URL = os.getenv("DATABASE_URL")
+
 # LLM Configuration
 CLASSIFIER_MODEL = "gpt-4.1-mini"
 LLM_MODEL = "gpt-4.1"
@@ -28,7 +36,7 @@ LLM_TEMPERATURE = 0.0
 EMBEDDING_MODEL = "text-embedding-3-small"
 
 # Search Configuration
-SEARCH_LIMIT = 5
+SEARCH_LIMIT = 10
 
 # Document Chunking Configuration
 CHUNK_SIZE = 1000
