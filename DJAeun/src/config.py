@@ -17,7 +17,7 @@ OPENFDA_LABEL_ENDPOINT = "/label.json"
 SEARCH_LIMIT = 20
 
 # LLM Configuration
-CLASSIFIER_MODEL = "gpt-4.1-nano"
+CLASSIFIER_MODEL = "gpt-5-nano"
 LLM_MODEL = "gpt-4.1-mini"
 LLM_TEMPERATURE = 0.0
 
